@@ -56,7 +56,7 @@ void Node::startUp(){
 				continue;
 			else if(res[0] == '2'){
                 int idx = res.find("::");
-				sentNodes.insert(res.substr(idx+2));
+				cout << "Peer alive at: " << res.substr(idx+2) << endl;
 			}
 		}
 	}
@@ -185,6 +185,7 @@ void Node::submitJob(string execFileName, string ipFileName,bool b){
         sendFile(sentip, sentport, vj[i].ipFile);
         sendFile(sentip, sentport, j.execFile, vj[i].execFile);
         sentNodes.insert(load[i].first);
+        vj[i].execFile = j.execFile;
         nodeToJob[load[i].first].push_back(vj[i]);
         inputMapping[j.jobId].insert(pair<string,int>(load[i].first,i+1));
     }
@@ -207,18 +208,20 @@ void Node::submitJob(string execFileName, string ipFileName,bool b){
 void Node::heartBeat(){
     while(1){
         sleep(HeartBeatTime);
-        cout << "HeartBeat sending started \n";
+        if(!sentNodes.empty())
+            cout << "Sending heartbeat... \n";
+
         set<string>::iterator it;
         for(it = sentNodes.begin(); it != sentNodes.end();){
             string curNode = *it;
             pair<string,string> p=split_(curNode);
+            cout << p.first << " " << p.second << endl;
             string res = sendMessage(p.first,p.second,to_string(CheckAlive)+"::"+curNode);
             if(res == "timeout" || res == "disconnect") {
                 cout << curNode << " is not alive!!" << endl;
                 cout << sentNodes.size() << endl;
                 nodeFail(curNode);
                 it = sentNodes.erase(it);
-                // call submitJob function to submit required job.
             } else
                 it++;
         }
@@ -253,14 +256,16 @@ string Node::sendMessage(string ip, string port, string msg){
         return "disconnect";
     }
 
+    memset(buffer, 0, MAX);
     strcpy(buffer,msg.c_str());
     cout << "Sending message " << msg << " to " << ip + "<" + port << endl;
     n = write(sockfd,buffer,strlen(buffer));
     if (n < 0) 
         perror("ERROR writing to socket");
 
+    memset(buffer, 0, MAX);
     // wait for sometime in this read function. If dont get any read then just break it.
-    n = read(sockfd,buffer,255);
+    n = read(sockfd,buffer,MAX);
     
     if(errno == EAGAIN || errno == EWOULDBLOCK)
     {
@@ -335,7 +340,6 @@ void Node::nodeFail(string failnodeid) {
         parent[newjid]=pair<string,int>(it->jobId,z->second);
         submitJob(it->execFile,it->ipFile,false);
         it++;
-        cout << "Reached" << endl;
     }
     nodeToJob.erase(failnodeid);
     return;
@@ -380,7 +384,7 @@ void Node::receiveMessage(){
 	int sockfd, newsockfd, portno;
     socklen_t clilen;
     char buffer[MAX];
-    char replybuffer[MAX];
+    string replybuffer;
     struct sockaddr_in serv_addr, cli_addr;
     int n;
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -401,18 +405,20 @@ void Node::receiveMessage(){
 	    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
 	    if (newsockfd < 0)
 	        perror("accept()");
-        
+        replybuffer = "";
         int n = read(newsockfd,buffer,MAX);
 	    if (n < 0) 
             perror("ERROR reading from socket");
 	    if(buffer[0] == IAmUp+'0'){
             string str(buffer);
             int idx = str.find("::");
-	    	sentNodes.insert(str.substr(idx+2));
+	    	//sentNodes.insert(str.substr(idx+2));
             //receive_IamUP(str.substr(idx+2));
-	    	sprintf(replybuffer,"%d::",ReplyAlive);
-            strcat(replybuffer,ip.c_str());
-            strcat(replybuffer,("<"+port).c_str());
+            cout << "Peer connected: " << str.substr(idx+2) << endl;
+            replybuffer += to_string(ReplyAlive);
+            replybuffer += "::";
+            replybuffer += ip;
+            replybuffer += "<"+port;
 	    }
         else if(buffer[0] == Mapping+'0'){
             string str(buffer);
@@ -432,13 +438,13 @@ void Node::receiveMessage(){
             job.jobId = jobId;
             job.ownerId = ownerId;
             inputJobMapping[execName] = job;
-            strcat(replybuffer,string("success").c_str());
+            replybuffer += "Mapping Successful";
             cout << "inputJobMapping size: " << inputJobMapping.size() << endl;
             cout << execName << endl;
         }
         else if(buffer[0] == Query+'0'){
             int te = globalQ.size();
-            sprintf(replybuffer,"%d",te);
+            replybuffer += to_string(te);
         }
         else if(buffer[0] == Result + '0'){
             string str(buffer);
@@ -450,12 +456,14 @@ void Node::receiveMessage(){
             string jobId = str.substr(idx1+1,idx2-idx1-1);
             string opFile = str.substr(idx2+1,idx3-idx2-1);
             receive_result(senderId,jobId,opFile);
+        } else if(buffer[0] == CheckAlive + '0') {
+            replybuffer = "Alive!";
         }
-	    cout << "size of set is " << sentNodes.size() << endl;
-	    n = write(newsockfd,replybuffer,MAX);
+	    //cout << "size of set is " << sentNodes.size() << endl;
+	    n = write(newsockfd,replybuffer.c_str(),replybuffer.length());
 	    if (n < 0) perror("ERROR writing to socket");
+        close(newsockfd);
     }
-    close(newsockfd);
     close(sockfd);
 }
 
@@ -575,7 +583,6 @@ void Node::sendFile(string ip, string port, string srcFileName, string destFileN
     }
     fseek(fp,0,SEEK_END);
     int f_sz = ftell(fp);
-    cout << "Filesize: " << f_sz << endl;
     rewind(fp);
     int size = 0, nbytes = min(f_sz, MAX-1);
 

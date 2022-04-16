@@ -16,4 +16,4 @@ Node.o: Node.cpp Node.h md5.h
 	g++ -g -c Node.cpp
 
 clean:
-	rm *.o *.out arrsum */arrsum out* part* */out* */part*
+	rm *.o *.out arrsum out* part* */out* */part*

@@ -33,7 +33,7 @@ using namespace std;
 #define InputSend 7
 #define Mapping 8
 #define Query 9
-#define HeartBeatTime 20
+#define HeartBeatTime 5
 #define TIMEOUT 1
 #define MUTEX 25
 #define MACHINES 10
