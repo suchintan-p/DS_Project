@@ -15,7 +15,7 @@ public:
 	string sendMessage(string ip, string port, string msg);
 	void receiveMessage();
 	// string sendFile(string ip, string port, string fileName, int type);
-	void sendFile(string ip, string port, string fileName);
+	void sendFile(string ip, string port, string srcFileName, string destFileName="");
 	// void receiveFile();
 	void receiveExecFile();
 	void mapFilenametoJobId(string ip, string port, string execFileName, string ipFileName, string jobId, string ownerId);

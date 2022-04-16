@@ -10,6 +10,9 @@ vector<Job> Application::split(Job job, int n){
     strcpy(buf,in.c_str());
 	strcat(buf, to_string(t).c_str());
     string ipf(md5.digestString(buf));
+	strcpy(buf, ex.c_str());
+	strcat(buf, to_string(t).c_str());
+	string exf(md5.digestString(buf));
 	vector<Job> ans;
 	ifstream is;
 	is.open(in.c_str());
@@ -27,7 +30,11 @@ vector<Job> Application::split(Job job, int n){
 	ofstream os;
 	for(int i=1;i<=n;i++) {
 		Job j;
-		j.execFile=ex;
+		if(i==n) {
+			j.execFile=ex;
+		} else {
+			j.execFile=exf;
+		}
 		stringstream ss;
 		ss << i;
 		j.ipFile=string("part")+ss.str()+string("_")+ipf;
@@ -43,9 +50,6 @@ vector<Job> Application::split(Job job, int n){
     	j.jobId = job.jobId;
 		ans.push_back(j);
 		if(!ct) break;
-	}
-	for(int i=0;i<ans.size();i++) {
-		//ans[i].ipFile=filerename(ans[i].ipFile);
 	}
 	is.close();
 	return ans;

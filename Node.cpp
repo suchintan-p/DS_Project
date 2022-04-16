@@ -183,7 +183,7 @@ void Node::submitJob(string execFileName, string ipFileName,bool b){
         // cout << "execFile " << vj[i].execFile << endl;
         // cout << "ipFile " << vj[i].ipFile << endl;
         sendFile(sentip, sentport, vj[i].ipFile);
-        sendFile(sentip, sentport, vj[i].execFile);
+        sendFile(sentip, sentport, j.execFile, vj[i].execFile);
         sentNodes.insert(load[i].first);
         nodeToJob[load[i].first].push_back(vj[i]);
         inputMapping[j.jobId].insert(pair<string,int>(load[i].first,i+1));
@@ -545,8 +545,10 @@ void Node::receiveExecFile(){
     }
 }
 
-void Node::sendFile(string ip, string port, string fileName)
+void Node::sendFile(string ip, string port, string srcFileName, string destFileName)
 {
+    if(destFileName.empty())
+        destFileName = srcFileName;
     int fis_id,ps_id;
     struct sockaddr_in ps_addr,fis_addr;
     
@@ -566,7 +568,7 @@ void Node::sendFile(string ip, string port, string fileName)
         return;
     }
     
-    FILE *fp=fopen(fileName.c_str(),"r");
+    FILE *fp=fopen(srcFileName.c_str(),"r");
     if(fp==NULL){
         cout << "Execfile open error: " << errno << endl;
         return;
@@ -579,17 +581,15 @@ void Node::sendFile(string ip, string port, string fileName)
 
     char buffer[MAX];
     
-    strcpy(buffer,(fileName.c_str()));
-    int sz = fileName.size();
+    strcpy(buffer,(destFileName.c_str()));
+    int sz = destFileName.size();
     // for(int i=0;i<10;i++)
         // buffer[i] = ':';
     buffer[sz++] = ':';
     write(ps_id,buffer,sz);
     while((size = fread(buffer,sizeof(char), nbytes, fp)) > 0)
     {
-        
         write(ps_id, buffer, size);
-
         f_sz -= size;
         nbytes = min(f_sz, MAX-1);
     }
