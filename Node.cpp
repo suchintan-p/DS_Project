@@ -462,8 +462,9 @@ void Node::receiveMessage(){
 	    //cout << "size of set is " << sentNodes.size() << endl;
 	    n = write(newsockfd,replybuffer.c_str(),replybuffer.length());
 	    if (n < 0) perror("ERROR writing to socket");
-        close(newsockfd);
+        
     }
+    close(newsockfd);
     close(sockfd);
 }
 
