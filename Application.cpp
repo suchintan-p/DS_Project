@@ -20,6 +20,7 @@ vector<Job> Application::split(Job job, int n){
 	int x;
 	int ct=0;
 	while(!is.eof()) {is>>x;ct++;}
+	ct--;
 	is.close();
 	is.open(in.c_str());
 	int p=(ct+n-1)/n;
@@ -44,7 +45,7 @@ vector<Job> Application::split(Job job, int n){
 		if(!ct) break;
 	}
 	for(int i=0;i<ans.size();i++) {
-		ans[i].ipFile=filerename(ans[i].ipFile);
+		//ans[i].ipFile=filerename(ans[i].ipFile);
 	}
 	is.close();
 	return ans;

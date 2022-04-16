@@ -29,7 +29,12 @@ pair<string,string> split_(string NodeID) {
     return pair<string,string>(a,NodeID.substr(i+1));
 }
 
-Node::Node(string ip, string port):ip(ip),port(port) { ID=ip+string("<")+port; }
+Node::Node(string ip, string port):ip(ip),port(port)
+{ 
+    ID=ip+string("<")+port; 
+    Qmutex = new mutex();
+    Qnotempty = new condition_variable();
+}
 
 void Node::startUp(){
 	thread listenMessage (&Node::receiveMessage,this);
@@ -45,7 +50,6 @@ void Node::startUp(){
     // submitJobT.detach();
     	
 	for(int i=0; i<10; i++){
-		
 		if(port != ports[i]){
 			string res = sendMessage(ips[i],ports[i],to_string(IAmUp)+"::"+ip+"<"+port);
 			if(res == "error")
@@ -58,21 +62,21 @@ void Node::startUp(){
 	}
 	cout << "Total number of nodes in sentNodes : " <<  sentNodes.size() << endl;
 
-    // thread heartBeatMessage (&Node::heartBeat,this);
-    // heartBeatMessage.detach();
+    thread heartBeatMessage (&Node::heartBeat,this);
+    heartBeatMessage.detach();
 	
 }
 
 void Node::executeJob(){
     while(1){
-        sleep(5);
-
         //cout<<getpid()<< " GQ : "<<globalQ.size()<<endl;
-        if(globalQ.empty())
-            continue;
-        cout << "thread working fine " << globalQ.size() << endl;
+        unique_lock<mutex> lk{*Qmutex};
+        while(globalQ.empty()) {
+            (*Qnotempty).wait(lk);
+        }
         Job job = globalQ.front();
         globalQ.pop_front();
+        lk.unlock();
         cout << "execFile name is: " << job.execFile << endl;
         cout << "ipFile name is: " << job.ipFile << endl;
         cout << "jobId is: " << job.jobId << endl;
@@ -100,7 +104,6 @@ void Node::executeJob(){
             cout << "execvp fail: " << errno << endl;
             _exit(-1);
         }
-        // sleep(1);
         waitpid(pid,&status,0);
         if(status!=0) {
             cout << "Execvp error: returned " << status << endl;
@@ -110,9 +113,9 @@ void Node::executeJob(){
             receive_result(ID,job.jobId,string("out_")+job.ipFile);
         } else {
             pair<string, string> addr = split_(job.ownerId);
-            cout<< job.ipFile.size() <<endl;
+            cout<< job.ipFile.size() << endl;
             cout << addr.first << " " << addr.second << " " << string("out_")+job.ipFile<< endl;
-            sendExecFile(addr.first, addr.second, string("out_")+job.ipFile);
+            sendFile(addr.first, addr.second, string("out_")+job.ipFile);
             cout << "OK" << endl;
             sendMessage(addr.first, addr.second, to_string(Result)+"::"+ID+":"+job.jobId+":"+string("out_")+job.ipFile+":");
         }
@@ -135,7 +138,7 @@ void getDestNodes(vector<pair <string,int> >& load) {
             return;
         }
     }
-} 
+}
 
 void Node::submitJob(string execFileName, string ipFileName,bool b){
     cout << execFileName << " " << ipFileName << endl;
@@ -179,17 +182,26 @@ void Node::submitJob(string execFileName, string ipFileName,bool b){
         mapFilenametoJobId(sentip,sentport,vj[i].execFile,vj[i].ipFile,vj[i].jobId,vj[i].ownerId);
         // cout << "execFile " << vj[i].execFile << endl;
         // cout << "ipFile " << vj[i].ipFile << endl;
-        sendExecFile(sentip, sentport, vj[i].ipFile);
-        sendExecFile(sentip, sentport, vj[i].execFile);
+        sendFile(sentip, sentport, vj[i].ipFile);
+        sendFile(sentip, sentport, vj[i].execFile);
         sentNodes.insert(load[i].first);
         nodeToJob[load[i].first].push_back(vj[i]);
         inputMapping[j.jobId].insert(pair<string,int>(load[i].first,i+1));
     }
-    globalQ.push_back(vj[vj.size()-1]); //keep self part
+    unique_lock<mutex> lk{*Qmutex};
+    //keep self part
+    if(globalQ.empty()) {
+        globalQ.push_back(vj[vj.size()-1]);
+        lk.unlock();
+        (*Qnotempty).notify_all();
+    } else {
+        globalQ.push_back(vj[vj.size()-1]);
+        lk.unlock();
+    }
     cout << "Process: " << getpid() <<" size of globalQ is " << globalQ.size() << endl;
     inputMapping[j.jobId].insert(pair<string,int>(ID,vj.size()));
 	
-    if(b) cout << "Submit job done!! file names are: \n" << execFileName << "\n" << ipFileName << endl;
+    cout << "Submit job done!! file names are: \n" << execFileName << "\n" << ipFileName << endl;
 }
 
 void Node::heartBeat(){
@@ -197,16 +209,18 @@ void Node::heartBeat(){
         sleep(HeartBeatTime);
         cout << "HeartBeat sending started \n";
         set<string>::iterator it;
-        for(it = sentNodes.begin(); it != sentNodes.end(); it++){
+        for(it = sentNodes.begin(); it != sentNodes.end();){
             string curNode = *it;
             pair<string,string> p=split_(curNode);
             string res = sendMessage(p.first,p.second,to_string(CheckAlive)+"::"+curNode);
-            if(res == "timeout"){
+            if(res == "timeout" || res == "disconnect") {
                 cout << curNode << " is not alive!!" << endl;
                 cout << sentNodes.size() << endl;
                 nodeFail(curNode);
+                it = sentNodes.erase(it);
                 // call submitJob function to submit required job.
-            }
+            } else
+                it++;
         }
     }
 }
@@ -251,7 +265,7 @@ string Node::sendMessage(string ip, string port, string msg){
     if(errno == EAGAIN || errno == EWOULDBLOCK)
     {
         return "timeout";
-    }    
+    }
     if (n < 0) 
         perror("ERROR reading from socket");
     cout << "Got message " << buffer << " from " << ip + "<" + port << endl;
@@ -271,7 +285,6 @@ void Node::receive_IamUP(string newnodeid) {
         unsigned long x = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         strcpy(buf,j.execFile.c_str());
         strcat(buf, to_string(x).c_str());
-        cout << buf << endl;
         string exf(md5.digestString(buf));
         strcpy(buf,j.ipFile.c_str());
         strcat(buf, to_string(x).c_str());
@@ -285,8 +298,8 @@ void Node::receive_IamUP(string newnodeid) {
             string sentip = newnodeid.substr(0,newnodeid.find("<"));
             string sentport = newnodeid.substr(newnodeid.find("<")+1);
             mapFilenametoJobId(sentip,sentport,vj[i].execFile,vj[i].ipFile,vj[i].jobId,vj[i].ownerId);
-            sendExecFile(sentip, sentport, vj[i].ipFile);
-            sendExecFile(sentip, sentport, vj[i].execFile);
+            sendFile(sentip, sentport, vj[i].ipFile);
+            sendFile(sentip, sentport, vj[i].execFile);
                 
             sentNodes.insert(newnodeid);
             nodeToJob[newnodeid].push_back(vj[i]);
@@ -322,14 +335,14 @@ void Node::nodeFail(string failnodeid) {
         parent[newjid]=pair<string,int>(it->jobId,z->second);
         submitJob(it->execFile,it->ipFile,false);
         it++;
+        cout << "Reached" << endl;
     }
     nodeToJob.erase(failnodeid);
-    sentNodes.erase(failnodeid);
     return;
 }
 
 void Node::receive_result(string nodeid,string jobid,string opfile) {
-    opfile=filerename(opfile);
+    //opfile=filerename(opfile);
     set<pair<string,int> >::iterator it=inputMapping[jobid].begin();
     while(it!=inputMapping[jobid].end() && it->first!=nodeid) it++;
     if(it==inputMapping[jobid].end()) return;
@@ -339,7 +352,7 @@ void Node::receive_result(string nodeid,string jobid,string opfile) {
         string of=app.merge(result[jobid]);
         result.erase(jobid);
         inputMapping.erase(jobid);
-        of=filerename(of);
+        //of=filerename(of);
         if(parent.find(jobid)!=parent.end()) {
             string j1=parent[jobid].first;
             result[j1].insert(pair<int,string>(parent[jobid].second,of));
@@ -354,7 +367,7 @@ void Node::receive_result(string nodeid,string jobid,string opfile) {
     if(nodeid==ID) return;
     if(nodeToJob[nodeid].size()==1) {
         nodeToJob.erase(nodeid);
-        sentNodes.erase(nodeid); 
+        sentNodes.erase(nodeid);
     } else {
         vector<Job>::iterator it=nodeToJob[nodeid].begin();
         while(it->jobId!=jobid) it++;
@@ -395,7 +408,8 @@ void Node::receiveMessage(){
 	    if(buffer[0] == IAmUp+'0'){
             string str(buffer);
             int idx = str.find("::");
-	    	sentNodes.insert(str.substr(idx+2));   
+	    	sentNodes.insert(str.substr(idx+2));
+            //receive_IamUP(str.substr(idx+2));
 	    	sprintf(replybuffer,"%d::",ReplyAlive);
             strcat(replybuffer,ip.c_str());
             strcat(replybuffer,("<"+port).c_str());
@@ -514,16 +528,24 @@ void Node::receiveExecFile(){
         cout << "filename is " << fileName << endl;
         cout << inputJobMapping.count(fileName) << endl;
         if(inputJobMapping.find(fileName) != inputJobMapping.end()){
-            globalQ.push_back(inputJobMapping[fileName]);
+            unique_lock<mutex> lk{*Qmutex};
+            if(globalQ.empty()) {
+                globalQ.push_back(inputJobMapping[fileName]);
+                lk.unlock();
+                (*Qnotempty).notify_all();
+            } else {
+                globalQ.push_back(inputJobMapping[fileName]);
+                lk.unlock();
+            }
             cout << "Job inserted in globalQ " << endl;
         }
-        else{
+        else {
             cout << "Mapping is not found" << endl;
         }
     }
 }
 
-void Node::sendExecFile(string ip, string port, string fileName)
+void Node::sendFile(string ip, string port, string fileName)
 {
     int fis_id,ps_id;
     struct sockaddr_in ps_addr,fis_addr;
