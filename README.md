@@ -27,8 +27,9 @@ cp a.out Server_2
 ```
 Similarly more servers can be started up (max. of 10 servers). You can also start servers in the sane directory (parent).
 
-### If you want to submit a new job press y , followed by entering executable file name: arrsum and input file name: inp.in. You can continue doing this. 
-### After the job is completed a message displayed on the terminal will indiacate the file name containing final the output (file_x.out)
+If you want to submit a new job press y , followed by entering executable file name: arrsum and input file name: inp.in. You can continue doing this. 
+
+After the job is completed a message displayed on the terminal will indiacate the file name containing final the output (file_x.out)
 
 ## Note that you can submit job to the server started within DS_Project only (directory containing the executable and input file).
 
