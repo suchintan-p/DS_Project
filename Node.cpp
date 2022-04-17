@@ -34,6 +34,8 @@ Node::Node(string ip, string port):ip(ip),port(port)
     ID=ip+string("<")+port; 
     Qmutex = new mutex();
     Qnotempty = new condition_variable();
+    opFileMutex = new mutex();
+    opFileCond = new condition_variable();
 }
 
 void Node::startUp(){
@@ -72,7 +74,7 @@ void Node::executeJob(){
         //cout<<getpid()<< " GQ : "<<globalQ.size()<<endl;
         unique_lock<mutex> lk{*Qmutex};
         while(globalQ.empty()) {
-            (*Qnotempty).wait(lk);
+            Qnotempty->wait(lk);
         }
         Job job = globalQ.front();
         globalQ.pop_front();
@@ -197,7 +199,7 @@ void Node::submitJob(string execFileName, string ipFileName,string newjid){
     if(globalQ.empty()) {
         globalQ.push_back(vj[vj.size()-1]);
         lk.unlock();
-        (*Qnotempty).notify_all();
+        Qnotempty->notify_all();
     } else {
         globalQ.push_back(vj[vj.size()-1]);
         lk.unlock();
@@ -378,6 +380,7 @@ void Node::receiveMessage(){
 	    if (newsockfd < 0)
 	        perror("accept()");
         replybuffer = "";
+        memset(buffer, 0, MAX);
         int n = read(newsockfd,buffer,MAX);
 	    if (n < 0) 
             perror("ERROR reading from socket");
@@ -427,6 +430,14 @@ void Node::receiveMessage(){
             string senderId = str.substr(idx+2,idx1-idx-2);
             string jobId = str.substr(idx1+1,idx2-idx1-1);
             string opFile = str.substr(idx2+1,idx3-idx2-1);
+
+            //wait for opFile to become available
+            unique_lock<mutex> lk{*opFileMutex};
+            while(opFilesPending.find(opFile)==opFilesPending.end()) {
+                opFileCond->wait(lk);
+            }
+            opFilesPending.erase(opFile);
+            lk.unlock();
             mergeResult(senderId,jobId,opFile);
         } else if(buffer[0] == CheckAlive + '0') {
             replybuffer = "Alive!";
@@ -470,6 +481,7 @@ void Node::receiveFile(){
         FILE *fp2;
         bool nameRead = false;
         while(1){
+            memset(buffer,0,MAX);
             n = read(newsockfd,buffer,MAX);
             /**/
             if(n<0) {
@@ -507,21 +519,23 @@ void Node::receiveFile(){
         //     cout << fileName.size() <<","<< (it->first).size() << endl;
         // }
         cout << "Received a file with filename " << fileName << endl;
+        unique_lock<mutex> lk{*opFileMutex};
+        opFilesPending.insert(fileName);
+        lk.unlock();
+        (*opFileCond).notify_all();
+
         // cout << inputToJobMap.count(fileName) << endl;
         if(inputToJobMap.find(fileName) != inputToJobMap.end()){
             unique_lock<mutex> lk{*Qmutex};
             if(globalQ.empty()) {
                 globalQ.push_back(inputToJobMap[fileName]);
                 lk.unlock();
-                (*Qnotempty).notify_all();
+                Qnotempty->notify_all();
             } else {
                 globalQ.push_back(inputToJobMap[fileName]);
                 lk.unlock();
             }
             cout << "Job inserted in globalQ." << endl;
-        }
-        else {
-            cout << "Received a non-executable." << endl;
         }
     }
 }
