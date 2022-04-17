@@ -55,16 +55,16 @@ vector<Job> Application::split(Job job, int n){
 	return ans;
 }
 
-string Application::merge(set<pair<int,string> > result){ // returns final o/p filename after merging
+string Application::merge(set<string> result){ // returns final o/p filename after merging
 	static int ind=1;
 	char t[20];
 	sprintf(t,"file_%d.out",ind);
 	ind++;
 	ifstream is;
 	int x,ans=0;
-	set< pair<int,string> >::iterator it=result.begin();
+	set<string>::iterator it=result.begin();
 	while(it!=result.end()) {
-		is.open(it->second.c_str());
+		is.open(*it);
 		is>>x;
 		is.close();
 		ans+=x;

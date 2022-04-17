@@ -6,15 +6,6 @@ int main(int argc, char *argv[]){
 	Node node = Node(argv[1],argv[2]);
 	string str = argv[2];
 	node.startUp();
-	// if(str == "12342")
-	// {
-	// 	// node.sendFile("127.0.0.1", "12341", "testing/temp");
-	// 	node.mapFilenametoJobId("127.0.0.1","12341","testing/temp","testing/inp.txt","jobId","ownerId");
-	// 	node.sendFile("127.0.0.1", "12341", "testing/inp.txt");
-	// 	node.sendFile("127.0.0.1", "12341", "testing/temp");
-	// 	// cout <<"***********************" << endl;
-	// 	// node.sendFile("127.0.0.1", "12341", "testing/temp");
-	// }
 	string execFile, inputFile;
 	string choice, ipFileName, execFileName;
 
