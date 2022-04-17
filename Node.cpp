@@ -40,7 +40,7 @@ void Node::startUp(){
 	thread listenMessage (&Node::receiveMessage,this);
     listenMessage.detach();
 
-    thread listenFile(&Node::receiveExecFile,this);
+    thread listenFile(&Node::receiveFile,this);
     listenFile.detach();
 
     thread executeJob1(&Node::executeJob, this);
@@ -97,7 +97,7 @@ void Node::executeJob(){
         else 
             sprintf(buf,"%s/%s",get_current_dir_name(),job.execFile.c_str());
         
-        cout << "Execvp args: " << buf << " " << arg1 << " " << arg2 << " " << arg3 << endl;
+        //cout << "Execvp args: " << buf << " " << arg1 << " " << arg2 << " " << arg3 << endl;
         int pid, status;
         if((pid = fork()) == 0){
             execvp(buf,arglist);
@@ -113,8 +113,8 @@ void Node::executeJob(){
             receive_result(ID,job.jobId,string("out_")+job.ipFile);
         } else {
             pair<string, string> addr = split_(job.ownerId);
-            cout<< job.ipFile.size() << endl;
-            cout << addr.first << " " << addr.second << " " << string("out_")+job.ipFile<< endl;
+            //cout << job.ipFile.size() << endl;
+            //cout << addr.first << " " << addr.second << " " << string("out_")+job.ipFile<< endl;
             sendFile(addr.first, addr.second, string("out_")+job.ipFile);
             cout << "OK" << endl;
             sendMessage(addr.first, addr.second, to_string(Result)+"::"+ID+":"+job.jobId+":"+string("out_")+job.ipFile+":");
@@ -170,11 +170,11 @@ void Node::submitJob(string execFileName, string ipFileName,bool b){
         int temp = stoi(out);
         load.push_back(make_pair(ips[i]+"<"+ports[i],temp));
     }
-    cout << "size of load " << load.size() << endl;
+    cout << "Number of active peers " << load.size() << endl;
     getDestNodes(load);
     Application app;
     vector<Job> vj= app.split(j,load.size()+1);
-    cout << "size of vector job is " << vj.size() << endl;
+    cout << "Number of jobs spawned " << vj.size() << endl;
     for(int i=0;i<vj.size()-1;i++) //send files to nodes in load[i]
     {
         string sentip = load[i].first.substr(0,load[i].first.find("<"));
@@ -240,19 +240,22 @@ string Node::sendMessage(string ip, string port, string msg){
 
 
     char buffer[MAX];
+    char recv_message[MAX];
+
     portno = atoi(port.c_str());
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) 
         perror("ERROR opening socket");
     
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,sizeof(struct timeval));
+    
 
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr(ip.c_str());
     serv_addr.sin_port = htons(portno);
     // cout << "Connecting to " << ip+":"+port << endl;
     if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0){
-        // perror("ERROR connecting");
+        //perror("ERROR connecting");
         return "disconnect";
     }
 
@@ -263,20 +266,26 @@ string Node::sendMessage(string ip, string port, string msg){
     if (n < 0) 
         perror("ERROR writing to socket");
 
-    memset(buffer, 0, MAX);
-    // wait for sometime in this read function. If dont get any read then just break it.
-    n = read(sockfd,buffer,MAX);
-    
-    if(errno == EAGAIN || errno == EWOULDBLOCK)
-    {
-        return "timeout";
+    memset(recv_message, 0, MAX);
+    //read till timeout occurs/connection is broken
+    while((n=read(sockfd,buffer,MAX)) > 0) {
+        //cout << "Read " << n << " bytes of sendmessage reply" << endl;
+        strncat(recv_message, buffer, n);
+        memset(buffer, 0, MAX);
     }
-    if (n < 0) 
-        perror("ERROR reading from socket");
-    cout << "Got message " << buffer << " from " << ip + "<" + port << endl;
-    string ret(buffer);
+    
+    if(n < 0) {
+        if(errno == EAGAIN || errno == EWOULDBLOCK) {
+            //cout << "timeout occurred" << endl;
+            return "timeout";
+        } else {
+            perror("ERROR reading from socket");
+        }
+    }
+    
+    cout << "Got message " << recv_message << " from " << ip + "<" + port << endl;
     close(sockfd);
-	return buffer;
+	return recv_message;
 }
 
 void Node::receive_IamUP(string newnodeid) {
@@ -391,6 +400,9 @@ void Node::receiveMessage(){
     if (sockfd < 0) 
 	    perror("Server Socket ");
 
+    int yesopt = 1;
+    setsockopt(sockfd,SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,&yesopt,sizeof(int));
+
     portno = atoi(port.c_str());
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
@@ -398,10 +410,9 @@ void Node::receiveMessage(){
     if (bind(sockfd, (struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) 
     	perror("bind()");
     cout << "Ready to receive any message" << endl;
+    listen(sockfd,MAX_CONN);
+	clilen = sizeof(cli_addr);
     while(1){
-	    listen(sockfd,5);
-	    clilen = sizeof(cli_addr);
-	    
 	    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
 	    if (newsockfd < 0)
 	        perror("accept()");
@@ -462,13 +473,12 @@ void Node::receiveMessage(){
 	    //cout << "size of set is " << sentNodes.size() << endl;
 	    n = write(newsockfd,replybuffer.c_str(),replybuffer.length());
 	    if (n < 0) perror("ERROR writing to socket");
-        
+        close(newsockfd);
     }
-    close(newsockfd);
     close(sockfd);
 }
 
-void Node::receiveExecFile(){
+void Node::receiveFile(){
     int sockfd, newsockfd, portno;
     socklen_t clilen;
     char buffer[MAX];
@@ -478,6 +488,9 @@ void Node::receiveExecFile(){
     if (sockfd < 0) 
         perror("Server Socket ");
 
+    int yesopt = 1;
+    setsockopt(sockfd,SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,&yesopt,sizeof(int));
+
     portno = atoi((port).c_str())+1000;
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
@@ -485,11 +498,9 @@ void Node::receiveExecFile(){
     if (bind(sockfd, (struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) 
         perror("bind()");
     cout << "Ready to receive any File" << endl;
-
+    listen(sockfd,MAX_CONN);
+    clilen = sizeof(cli_addr);
     while(1){
-        listen(sockfd,5);
-        clilen = sizeof(cli_addr);
-        
         newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
         if (newsockfd < 0) 
             perror("accept()");
@@ -509,7 +520,7 @@ void Node::receiveExecFile(){
             int i=0;
             for(i=0; !nameRead && i<n; i++) {
                 if(buffer[i] == ':'){
-                    cout << "RECV FILE: " << fileName << endl;
+                    //cout << "RECV FILE: " << fileName << endl;
                     fp2 = fopen(fileName.c_str(),"wb");
                     if(fp2==NULL) {
                         cout << "Error: invalid filename. " << errno << endl;
@@ -527,15 +538,16 @@ void Node::receiveExecFile(){
         }
         fclose(fp2);
         chmod(fileName.c_str(), S_IRWXU);
-        cout << "Exec file transfer successful" << endl;
+        cout << "File transfer successful" << endl;
+        close(newsockfd);
         
-        map<string,Job>::iterator it;
-        cout << inputJobMapping.count(fileName) << endl;
-        for(it = inputJobMapping.begin(); it != inputJobMapping.end(); it++){
-            cout << fileName.size() <<","<< (it->first).size() << endl;
-        }
-        cout << "filename is " << fileName << endl;
-        cout << inputJobMapping.count(fileName) << endl;
+        // map<string,Job>::iterator it;
+        // cout << inputJobMapping.count(fileName) << endl;
+        // for(it = inputJobMapping.begin(); it != inputJobMapping.end(); it++){
+        //     cout << fileName.size() <<","<< (it->first).size() << endl;
+        // }
+        cout << "Filename is " << fileName << endl;
+        // cout << inputJobMapping.count(fileName) << endl;
         if(inputJobMapping.find(fileName) != inputJobMapping.end()){
             unique_lock<mutex> lk{*Qmutex};
             if(globalQ.empty()) {
@@ -546,10 +558,10 @@ void Node::receiveExecFile(){
                 globalQ.push_back(inputJobMapping[fileName]);
                 lk.unlock();
             }
-            cout << "Job inserted in globalQ " << endl;
+            cout << "Job inserted in globalQ." << endl;
         }
         else {
-            cout << "Mapping is not found" << endl;
+            cout << "Received a non-executable." << endl;
         }
     }
 }
@@ -602,7 +614,7 @@ void Node::sendFile(string ip, string port, string srcFileName, string destFileN
         nbytes = min(f_sz, MAX-1);
     }
     fclose(fp);
-    shutdown(ps_id,2);
+    close(ps_id);
     // cout << "file transfer successful " << fileName << endl;
 }
 
@@ -613,17 +625,6 @@ void Node::mapFilenametoJobId(string ip, string port, string execFileName, strin
     sprintf(message, "%d::%s:%s:%s:%s:", Mapping, execFileName.c_str(), ipFileName.c_str(), jobId.c_str(), ownerId.c_str());
     string ret = sendMessage(ip, port, message);
     return;
-}
-
-void Node::submitJobThread() {
-    string a,b;
-    while(1) {
-        cout<< "Enter Executable File: ";
-        cin>>a;
-        cout<< "Enter Input File: ";
-        cin>>b;
-        submitJob(a,b);
-    }
 }
 
 string Node::getIp(){

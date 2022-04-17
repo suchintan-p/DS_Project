@@ -34,12 +34,12 @@ using namespace std;
 #define Mapping 8
 #define Query 9
 #define HeartBeatTime 5
-#define TIMEOUT 1
+#define TIMEOUT 2
 #define MUTEX 25
 #define MACHINES 10
+#define MAX_CONN 10
 
 #define MAX 256
-#define MAX1 10
 
 inline string filerename(string from) {
     MD5 md5;

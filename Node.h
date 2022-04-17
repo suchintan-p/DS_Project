@@ -14,17 +14,14 @@ public:
 	string getPort();
 	string sendMessage(string ip, string port, string msg);
 	void receiveMessage();
-	// string sendFile(string ip, string port, string fileName, int type);
 	void sendFile(string ip, string port, string srcFileName, string destFileName="");
-	// void receiveFile();
-	void receiveExecFile();
+	void receiveFile();
 	void mapFilenametoJobId(string ip, string port, string execFileName, string ipFileName, string jobId, string ownerId);
 	void receive_IamUP(string newnodeid);
 	void nodeFail(string failnodeid);
 	deque<Job> globalQ;
 	void receive_result(string nodeid,string jobid,string opfile);
 	void executeJob();
-	void submitJobThread();
 	condition_variable* Qnotempty;
 	mutex* Qmutex;
 private:
